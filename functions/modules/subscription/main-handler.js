@@ -199,6 +199,18 @@ export async function handleMisubRequest(context) {
                         }
                     });
                 }
+
+                // 3. 将 subscriptionOverrides 中的地址重写配置注入到对应的 sub 对象
+                const overrides = profile.subscriptionOverrides || {};
+                targetMisubs.forEach(sub => {
+                    const override = overrides[sub.id];
+                    if (override?.addressRewrite?.enabled && override.addressRewrite.host) {
+                        sub._addressRewrite = {
+                            host: override.addressRewrite.host,
+                            port: override.addressRewrite.port || null
+                        };
+                    }
+                });
             }
             // [新增] 增加订阅组下载计数
             // 仅在非回调请求时及非内部请求时增加计数(避免重复计数)

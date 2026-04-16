@@ -3,7 +3,7 @@
  * @author MiSub Team
  */
 
-import { parseNodeList } from '../modules/utils/node-parser.js';
+import { parseNodeList, rewriteNodeAddress } from '../modules/utils/node-parser.js';
 import { parseNodeInfo } from '../modules/utils/geo-utils.js';
 import { getProcessedUserAgent } from '../utils/format-utils.js';
 import { prependNodeName, addFlagEmoji, removeFlagEmoji, fixNodeUrlEncoding, sanitizeNodeForYaml } from '../utils/node-utils.js';
@@ -291,6 +291,12 @@ const prependGroupName = profilePrefixSettings?.prependGroupName ?? false;
             }
 
             let validNodes = fallbackParsedObjects.map(node => node.url);
+
+            // 地址重写：由 subscriptionOverrides 注入的 _addressRewrite 配置驱动
+            if (sub._addressRewrite) {
+                const { host, port } = sub._addressRewrite;
+                validNodes = validNodes.map(nodeUrl => rewriteNodeAddress(nodeUrl, host, port));
+            }
 
             // --- 统一转换治理 (算子 + 过滤 + 组级诊断) ---
             validNodes = await applySubscriptionTransforms(validNodes, sub);
