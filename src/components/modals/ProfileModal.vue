@@ -195,6 +195,11 @@ watch(() => props.profile, (newProfile) => {
     // 确保 operators 数组存在
     profileCopy.operators = Array.isArray(profileCopy.operators) ? profileCopy.operators : [];
     
+    // 确保 subscriptionOverrides 对象存在
+    if (!profileCopy.subscriptionOverrides || typeof profileCopy.subscriptionOverrides !== 'object') {
+      profileCopy.subscriptionOverrides = {};
+    }
+    
     localProfile.value = profileCopy;
   } else {
     localProfile.value = {
@@ -212,7 +217,8 @@ watch(() => props.profile, (newProfile) => {
         manualNodePrefix: '',
         prependGroupName: null
       },
-      operators: []
+      operators: [],
+      subscriptionOverrides: {}
     };
   }
 }, { deep: true, immediate: true });
@@ -293,8 +299,10 @@ const updateSelectedIds = (listName, newIds) => {
 
           <SubscriptionSelector :subscriptions="allSubscriptions" :filtered-subscriptions="filteredSubscriptions"
             :search-term="subscriptionSearchTerm" :selected-ids="localProfile.subscriptions || []"
+            :subscription-overrides="localProfile.subscriptionOverrides || {}"
             @update:search-term="subscriptionSearchTerm = $event"
             @update:selected-ids="updateSelectedIds('subscriptions', $event)"
+            @update:subscription-overrides="localProfile.subscriptionOverrides = $event"
             @toggle-selection="toggleSelection('subscriptions', $event)"
             @select-all="handleSelectAll('subscriptions', filteredSubscriptions)"
             @deselect-all="handleDeselectAll('subscriptions', filteredSubscriptions)" />
