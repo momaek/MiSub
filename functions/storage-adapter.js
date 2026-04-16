@@ -52,6 +52,8 @@ async function ensureD1Schema(d1Db) {
  * KV 存储适配器
  */
 class KVStorageAdapter {
+    supportsRowLevel = false;
+
     constructor(kvNamespace) {
         this.kv = kvNamespace;
     }
@@ -181,6 +183,8 @@ class KVStorageAdapter {
  * D1 存储适配器
  */
 class D1StorageAdapter {
+    supportsRowLevel = true;
+
     constructor(d1Database) {
         this.db = d1Database;
     }

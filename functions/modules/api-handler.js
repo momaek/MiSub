@@ -61,6 +61,8 @@ function isSimpleArrayDiff(diff) {
 }
 
 async function applyRowLevelDiff(storageAdapter, type, diff) {
+    if (!storageAdapter.supportsRowLevel) return false;
+
     const isProfile = type === 'profiles';
     const putItem = isProfile ? storageAdapter.putProfile?.bind(storageAdapter) : storageAdapter.putSubscription?.bind(storageAdapter);
     const deleteItem = isProfile ? storageAdapter.deleteProfileById?.bind(storageAdapter) : storageAdapter.deleteSubscriptionById?.bind(storageAdapter);
@@ -81,6 +83,8 @@ async function applyRowLevelDiff(storageAdapter, type, diff) {
 }
 
 async function syncCollectionRowLevel(storageAdapter, type, finalItems) {
+    if (!storageAdapter.supportsRowLevel) return false;
+
     const isProfile = type === 'profiles';
     const getAll = isProfile ? storageAdapter.getAllProfiles?.bind(storageAdapter) : storageAdapter.getAllSubscriptions?.bind(storageAdapter);
     const putItem = isProfile ? storageAdapter.putProfile?.bind(storageAdapter) : storageAdapter.putSubscription?.bind(storageAdapter);
