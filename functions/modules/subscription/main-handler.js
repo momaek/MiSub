@@ -284,6 +284,18 @@ export async function handleMisubRequest(context) {
     // 检查是否强制刷新（通过 URL 参数）
     const forceRefresh = url.searchParams.has('refresh') || url.searchParams.has('nocache') || url.searchParams.has('debug');
 
+    // 规则模式：?rules=inline (默认，MiSub 后端预取 .list 并展开进 YAML) 或 providers (保留原 rule-provider 引用)
+    // 兼容写法：?inline_rules=0 / =false / =providers 显式关闭 inline
+    const rulesParam = (url.searchParams.get('rules') || '').toLowerCase();
+    const inlineRulesParam = (url.searchParams.get('inline_rules') || '').toLowerCase();
+    const ruleMode = (
+        rulesParam === 'providers' ||
+        rulesParam === 'provider' ||
+        inlineRulesParam === '0' ||
+        inlineRulesParam === 'false' ||
+        inlineRulesParam === 'providers'
+    ) ? 'providers' : 'inline';
+
     // 定义刷新函数（用于后台刷新）
     const refreshNodes = async (isBackground = false) => {
         const isDebugToken = (token === 'b0b422857bb46aba65da8234c84f38c6');
@@ -493,7 +505,8 @@ export async function handleMisubRequest(context) {
                 managedConfigUrl,
                 storageAdapter,
                 userInfoHeader,
-                forceRefresh
+                forceRefresh,
+                ruleMode
             });
 
             const isJson = targetFormat === 'singbox' || targetFormat === 'sing-box';

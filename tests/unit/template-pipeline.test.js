@@ -115,6 +115,75 @@ MATCH,节点选择
         expect(selectGroups[0].proxies).toContain('DIRECT');
     });
 
+    it('should inline rule-set content when ruleSetContents is provided (inline mode)', () => {
+        const templateText = `
+[custom]
+ruleset=🎯 全球直连,https://example.com/ChinaDomain.list
+ruleset=🛑 广告拦截,https://example.com/BanAD.list
+custom_proxy_group=🎯 全球直连\`select\`[]DIRECT
+custom_proxy_group=🛑 广告拦截\`select\`[]REJECT
+        `;
+        const ruleSetContents = new Map([
+            ['https://example.com/ChinaDomain.list',
+                '# china domain list\nDOMAIN-SUFFIX,qq.com\nDOMAIN-SUFFIX,baidu.com\nDOMAIN-KEYWORD,weibo\n'],
+            ['https://example.com/BanAD.list',
+                '; ad block\nDOMAIN-SUFFIX,ads.example.com\nDOMAIN-KEYWORD,tracker,no-resolve\n']
+        ]);
+
+        const rendered = renderClashFromIniTemplate(templateText, {
+            proxies: [{ name: 'A', type: 'trojan', server: '1.1.1.1', port: 443, password: 'p' }],
+            ruleMode: 'inline',
+            ruleSetContents
+        });
+
+        const parsed = yaml.load(rendered);
+
+        // rule-providers 段应不出现（全部被内联了）
+        expect(parsed['rule-providers']).toBeUndefined();
+
+        // 具体规则应出现在 rules 列表里，且 policy 被改写为模板里指定的
+        expect(parsed.rules).toEqual(expect.arrayContaining([
+            'DOMAIN-SUFFIX,qq.com,🎯 全球直连',
+            'DOMAIN-SUFFIX,baidu.com,🎯 全球直连',
+            'DOMAIN-KEYWORD,weibo,🎯 全球直连',
+            'DOMAIN-SUFFIX,ads.example.com,🛑 广告拦截',
+            'DOMAIN-KEYWORD,tracker,🛑 广告拦截,no-resolve'
+        ]));
+
+        // 不应再出现 RULE-SET 引用
+        expect(parsed.rules.some(r => typeof r === 'string' && r.startsWith('RULE-SET,'))).toBe(false);
+    });
+
+    it('falls back to rule-provider reference when inline content is missing for some URL', () => {
+        const templateText = `
+[custom]
+ruleset=🎯 全球直连,https://example.com/a.list
+ruleset=🎯 全球直连,https://example.com/b.list
+custom_proxy_group=🎯 全球直连\`select\`[]DIRECT
+        `;
+        const ruleSetContents = new Map([
+            // 只提供 a.list 的内容，b.list 没有（模拟拉取失败）
+            ['https://example.com/a.list', 'DOMAIN-SUFFIX,a.com\n']
+        ]);
+
+        const rendered = renderClashFromIniTemplate(templateText, {
+            proxies: [{ name: 'X', type: 'trojan', server: '1.1.1.1', port: 443, password: 'p' }],
+            ruleMode: 'inline',
+            ruleSetContents
+        });
+
+        const parsed = yaml.load(rendered);
+
+        // a.list 的规则已内联
+        expect(parsed.rules).toEqual(expect.arrayContaining(['DOMAIN-SUFFIX,a.com,🎯 全球直连']));
+        // b.list 未拉到，仍保留为 RULE-SET 引用并有对应 rule-provider
+        const hasBRuleSet = parsed.rules.some(r => typeof r === 'string' && r.startsWith('RULE-SET,') && r.endsWith(',🎯 全球直连'));
+        expect(hasBRuleSet).toBe(true);
+        expect(parsed['rule-providers']).toBeDefined();
+        const providers = Object.values(parsed['rule-providers']);
+        expect(providers.some(p => p.url === 'https://example.com/b.list')).toBe(true);
+    });
+
     it('should emit correct rule-provider format based on source file extension', () => {
         const rendered = renderClashFromIniTemplate(`
 [custom]

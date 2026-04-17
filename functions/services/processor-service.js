@@ -5,9 +5,10 @@
 
 import { generateCombinedNodeList } from './subscription-service.js';
 import { transformBuiltinSubscription } from '../modules/subscription/transformer-factory.js';
-import { renderClashFromIniTemplate, renderSingboxFromIniTemplate, renderSurgeFromIniTemplate, renderLoonFromIniTemplate, renderQuanxFromIniTemplate, renderEgernFromIniTemplate } from '../modules/subscription/template-pipeline.js';
+import { renderClashFromIniTemplate, renderSingboxFromIniTemplate, renderSurgeFromIniTemplate, renderLoonFromIniTemplate, renderQuanxFromIniTemplate, renderEgernFromIniTemplate, extractRuleSetUrlsFromIniTemplate } from '../modules/subscription/template-pipeline.js';
 import { getBuiltinTemplate } from '../modules/subscription/builtin-template-registry.js';
 import { fetchTransformTemplate } from '../modules/subscription/transform-template-cache.js';
+import { fetchRuleSetBatch } from '../modules/subscription/rule-set-fetcher.js';
 
 /**
  * 判断模板渲染输出是否"形式上是空"（代理组为空、无规则）。
@@ -94,7 +95,8 @@ export class ProcessorService {
             managedConfigUrl,
             storageAdapter,
             userInfoHeader,
-            forceRefresh = false
+            forceRefresh = false,
+            ruleMode = 'inline'
         } = options;
 
         // Check for Base64 (simplest case)
@@ -147,8 +149,24 @@ export class ProcessorService {
                     interval: config.UpdateInterval || 86400,
                     managedConfigUrl,
                     skipCertVerify: builtinOptions.skipCertVerify,
-                    enableUdp: builtinOptions.enableUdp
+                    enableUdp: builtinOptions.enableUdp,
+                    ruleMode
                 };
+
+                // 仅 clash 目标支持 inline 展开，其它目标仍按原路径。
+                // 预取所有 RULE-SET 的 .list 内容，由 MiSub 后端代拉并 KV 缓存，解决路由器
+                // 场景（OpenClash / OpenWrt）下无法直拉 GitHub raw 的困境。
+                if (targetFormat === 'clash' && ruleMode === 'inline') {
+                    try {
+                        const ruleSetUrls = extractRuleSetUrlsFromIniTemplate(templateText, { targetFormat });
+                        if (ruleSetUrls.length > 0) {
+                            renderParams.ruleSetContents = await fetchRuleSetBatch(storageAdapter, ruleSetUrls, forceRefresh);
+                            console.log(`[Template] Inline mode: fetched ${renderParams.ruleSetContents.size}/${ruleSetUrls.length} rule-sets`);
+                        }
+                    } catch (e) {
+                        console.warn('[Template] Pre-fetch rule-sets failed, will fall back to rule-providers', e?.message || e);
+                    }
+                }
 
                 let rendered = null;
                 switch (targetFormat) {
