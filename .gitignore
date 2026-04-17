@@ -100,3 +100,8 @@ test-screenshots/
 # Docker (Closed Source)
 docker/
 data/
+
+# Scratch / 本地抓取的订阅样本（可能含节点地址 / 密码，严禁提交）
+scratch/sub-*.yaml
+scratch/sub-*.headers.txt
+scratch/sub-*.txt
