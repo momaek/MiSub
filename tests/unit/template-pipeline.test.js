@@ -154,6 +154,48 @@ custom_proxy_group=🛑 广告拦截\`select\`[]REJECT
         expect(parsed.rules.some(r => typeof r === 'string' && r.startsWith('RULE-SET,'))).toBe(false);
     });
 
+    it('drops Mihomo-incompatible rule types when inlining (URL-REGEX / USER-AGENT)', () => {
+        // ACL4SSR 的某些 .list 混有 Surge/Shadowrocket 专属规则类型，Mihomo 遇到会报
+        // "unsupported rule type" 并导致整份 YAML 加载失败 — 必须过滤。
+        const templateText = `
+[custom]
+ruleset=🌏 国内媒体,https://example.com/ChinaMedia.list
+custom_proxy_group=🌏 国内媒体\`select\`[]DIRECT
+        `;
+        const ruleSetContents = new Map([
+            ['https://example.com/ChinaMedia.list', [
+                '# regular rules',
+                'DOMAIN-SUFFIX,iqiyi.com',
+                'URL-REGEX,^https?:\\/\\/int[\\w-\\.]+iqiyi\\.com',
+                'USER-AGENT,iQIYI*',
+                'DOMAIN-KEYWORD,youku',
+                'UNKNOWN-TYPE,should-drop',
+                'IP-CIDR,223.5.5.5/32,no-resolve'
+            ].join('\n')]
+        ]);
+
+        const rendered = renderClashFromIniTemplate(templateText, {
+            proxies: [{ name: 'A', type: 'trojan', server: '1.1.1.1', port: 443, password: 'p' }],
+            ruleMode: 'inline',
+            ruleSetContents
+        });
+        const parsed = yaml.load(rendered);
+
+        const rules = parsed.rules.filter(r => typeof r === 'string');
+
+        // 合法类型保留
+        expect(rules).toEqual(expect.arrayContaining([
+            'DOMAIN-SUFFIX,iqiyi.com,🌏 国内媒体',
+            'DOMAIN-KEYWORD,youku,🌏 国内媒体',
+            'IP-CIDR,223.5.5.5/32,🌏 国内媒体,no-resolve'
+        ]));
+
+        // 非法类型被过滤
+        expect(rules.some(r => r.startsWith('URL-REGEX,'))).toBe(false);
+        expect(rules.some(r => r.startsWith('USER-AGENT,'))).toBe(false);
+        expect(rules.some(r => r.startsWith('UNKNOWN-TYPE,'))).toBe(false);
+    });
+
     it('falls back to rule-provider reference when inline content is missing for some URL', () => {
         const templateText = `
 [custom]

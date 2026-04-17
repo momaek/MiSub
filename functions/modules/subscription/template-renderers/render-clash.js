@@ -43,9 +43,53 @@ function mapRule(rule, ruleProviderMap) {
 }
 
 /**
+ * Mihomo / Clash Meta 支持的规则类型白名单。
+ * ACL4SSR 等 .list 文件混杂了 Surge / Shadowrocket 等平台的非标规则（如 URL-REGEX、
+ * USER-AGENT），这些在 Mihomo 里会触发 "unsupported rule type" 错误，并**导致整份
+ * YAML 加载失败**。在 inline 展开阶段必须过滤掉它们。
+ *
+ * 参考：https://wiki.metacubex.one/config/rules/
+ */
+const MIHOMO_SUPPORTED_RULE_TYPES = new Set([
+    'DOMAIN',
+    'DOMAIN-SUFFIX',
+    'DOMAIN-KEYWORD',
+    'DOMAIN-REGEX',
+    'DOMAIN-WILDCARD',
+    'GEOSITE',
+    'IP-CIDR',
+    'IP-CIDR6',
+    'IP-SUFFIX',
+    'IP-ASN',
+    'GEOIP',
+    'SRC-GEOIP',
+    'SRC-IP-ASN',
+    'SRC-IP-CIDR',
+    'SRC-IP-SUFFIX',
+    'DST-PORT',
+    'SRC-PORT',
+    'IN-PORT',
+    'IN-TYPE',
+    'IN-USER',
+    'IN-NAME',
+    'PROCESS-PATH',
+    'PROCESS-PATH-REGEX',
+    'PROCESS-NAME',
+    'PROCESS-NAME-REGEX',
+    'UID',
+    'NETWORK',
+    'DSCP',
+    'SUB-RULE',
+    'AND',
+    'OR',
+    'NOT'
+]);
+
+/**
  * 将原始 .list 行 (可能含 no-resolve 等修饰) 转成一条完整 Clash rule 字符串。
  * 注意：远端 .list 中若自带 policy（例如 `DOMAIN,x.com,DIRECT`），一律忽略其原始 policy，
  * 统一改写为模板里本条 ruleset 指定的 policy，保证行为和 rule-provider 模式一致。
+ * 不支持的规则类型（如 URL-REGEX / USER-AGENT）会被静默跳过，避免污染最终 YAML。
  */
 function inlineRuleSetLineToClashRule(rawLine, policy) {
     if (typeof rawLine !== 'string') return null;
@@ -66,6 +110,9 @@ function inlineRuleSetLineToClashRule(rawLine, policy) {
         const suffix = tail.length > 0 ? `,${tail.join(',')}` : '';
         return `GEOIP,${value},${policy}${suffix}`;
     }
+
+    // 非 Mihomo 支持类型（URL-REGEX / USER-AGENT / 未知）直接丢弃，避免 Mihomo 报错加载失败
+    if (!MIHOMO_SUPPORTED_RULE_TYPES.has(type)) return null;
 
     const value = parts[1];
     // parts[2..] 里可能有原 policy 或修饰（no-resolve）。
