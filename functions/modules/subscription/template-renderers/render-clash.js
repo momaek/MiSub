@@ -1,6 +1,7 @@
 import yaml from 'js-yaml';
 import { clashFix } from '../../../utils/format-utils.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { hasGroupContent, resolveGroupMembers } from '../template-group-utils.js';
 
 function mapGroupType(type) {
     const normalized = String(type || '').trim().toLowerCase();
@@ -17,6 +18,15 @@ function filterAutoSelectMembers(group) {
         return members;
     }
     return members.filter(member => !['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase()));
+}
+
+// 对于 ACL4SSR 风格的"filter-only 分组"（如 `🇭🇰 香港节点`load-balance`(港|HK|...)` 或
+// `☑️ 手动切换`select`.*`），若没有显式成员，则用 filter 正则去匹配全量代理名生成 proxies 列表，
+// 以保证在不支持 Mihomo `filter` 字段的 Clash 变种中依然可用。
+function resolveGroupProxies(group, allProxyNames) {
+    const members = filterAutoSelectMembers(group);
+    if (members.length > 0) return members;
+    return resolveGroupMembers(group, allProxyNames);
 }
 
 function mapRule(rule, ruleProviderMap) {
@@ -67,6 +77,8 @@ export function renderClashFromTemplateModel(model) {
         }
     });
 
+    const allProxyNames = normalizedModel.proxies.map(p => p && p.name).filter(Boolean);
+
     const config = {
         'mixed-port': 7890,
         'allow-lan': true,
@@ -75,11 +87,11 @@ export function renderClashFromTemplateModel(model) {
         'external-controller': ':9090',
         'proxies': normalizedModel.proxies,
         'proxy-groups': normalizedModel.groups
-            .filter(group => Array.isArray(group.members) && group.members.length > 0)
+            .filter(hasGroupContent)
             .map(group => ({
                 name: group.name,
                 type: mapGroupType(group.type),
-                proxies: filterAutoSelectMembers(group),
+                proxies: resolveGroupProxies(group, allProxyNames),
                 filter: Array.isArray(group.filters) && group.filters.length > 0 ? group.filters.join('|') : undefined,
                 ...group.options
             })),

@@ -115,6 +115,43 @@ MATCH,节点选择
         expect(selectGroups[0].proxies).toContain('DIRECT');
     });
 
+    it('should preserve ACL4SSR filter-only proxy groups (e.g. `☑️ 手动切换`select`.*)', () => {
+        const rendered = renderClashFromIniTemplate(`
+[custom]
+custom_proxy_group=☑️ 手动切换\`select\`.*
+custom_proxy_group=🇭🇰 香港节点\`load-balance\`(港|HK|hk|Hong Kong|HongKong|hongkong|HKG)\`http://www.gstatic.com/generate_204\`300,,50
+custom_proxy_group=🚀 节点选择\`select\`[]☑️ 手动切换\`[]🇭🇰 香港节点\`[]DIRECT
+ruleset=🚀 节点选择,[]FINAL
+        `, {
+            proxies: [
+                { name: '🇭🇰 HK-01', type: 'trojan', server: '1.1.1.1', port: 443, password: 'pass' },
+                { name: '🇯🇵 JP-01', type: 'trojan', server: '2.2.2.2', port: 443, password: 'pass' },
+                { name: '🇭🇰 HongKong-Deluxe', type: 'trojan', server: '3.3.3.3', port: 443, password: 'pass' }
+            ]
+        });
+
+        const parsed = yaml.load(rendered);
+        const groupNames = parsed['proxy-groups'].map(g => g.name);
+
+        // 裸正则 `.*` 作为 filter 的分组必须保留
+        expect(groupNames).toContain('☑️ 手动切换');
+        const manualGroup = parsed['proxy-groups'].find(g => g.name === '☑️ 手动切换');
+        expect(manualGroup.type).toBe('select');
+        expect(manualGroup.proxies).toEqual(expect.arrayContaining(['🇭🇰 HK-01', '🇯🇵 JP-01', '🇭🇰 HongKong-Deluxe']));
+        expect(manualGroup.filter).toBe('.*');
+
+        // 仅靠正则筛选的地区分组也必须保留
+        expect(groupNames).toContain('🇭🇰 香港节点');
+        const hkGroup = parsed['proxy-groups'].find(g => g.name === '🇭🇰 香港节点');
+        expect(hkGroup.type).toBe('load-balance');
+        expect(hkGroup.proxies).toEqual(expect.arrayContaining(['🇭🇰 HK-01', '🇭🇰 HongKong-Deluxe']));
+        expect(hkGroup.proxies).not.toContain('🇯🇵 JP-01');
+        expect(hkGroup.url).toBe('http://www.gstatic.com/generate_204');
+        expect(hkGroup.interval).toBe(300);
+        // 在 ACL4SSR 的 "interval,tolerance,timeout" 语义下，"300,,50" 应被解析为 timeout=50
+        expect(hkGroup.timeout).toBe(50);
+    });
+
     it('should parse builtin ACL4SSR custom template registry entry', () => {
         const builtinTemplate = getBuiltinTemplate('clash_acl4ssr_full');
         const model = parseIniTemplate(builtinTemplate.content, {

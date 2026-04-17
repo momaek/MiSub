@@ -1,5 +1,6 @@
 import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { hasGroupContent, resolveGroupMembers } from '../template-group-utils.js';
 
 function sanitizeTag(value) {
     return String(value || '').trim() || 'Untitled';
@@ -214,16 +215,18 @@ function mapGroupType(type) {
     return 'selector';
 }
 
-function buildGroupOutbounds(groups) {
+function buildGroupOutbounds(groups, allProxyNames = []) {
     return groups.map(group => {
         const mappedType = mapGroupType(group.type);
-        const rawMembers = Array.isArray(group.members) ? group.members.filter(Boolean) : [];
+        const resolved = Array.isArray(group.members) && group.members.length > 0
+            ? group.members.filter(Boolean)
+            : resolveGroupMembers(group, allProxyNames);
         const outbound = {
             tag: sanitizeTag(group.name),
             type: mappedType,
             outbounds: ['urltest'].includes(mappedType)
-                ? rawMembers.filter(member => !['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase()))
-                : rawMembers
+                ? resolved.filter(member => !['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase()))
+                : resolved
         };
 
         if (mappedType === 'urltest') {
@@ -329,7 +332,8 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
         ? normalizedModel.proxies
         : urlsToClashProxies(proxyUrls);
     const proxyOutbounds = proxies.map(buildOutbound).filter(Boolean);
-    const groupOutbounds = buildGroupOutbounds(normalizedModel.groups.filter(g => Array.isArray(g.members) && g.members.length > 0));
+    const allProxyNames = proxyOutbounds.map(o => o && o.tag).filter(Boolean);
+    const groupOutbounds = buildGroupOutbounds(normalizedModel.groups.filter(hasGroupContent), allProxyNames);
     const ruleSetObjects = buildRuleSets(normalizedModel.rules);
     const routeRules = normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean);
 

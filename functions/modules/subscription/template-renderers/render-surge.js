@@ -1,5 +1,6 @@
 import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { hasGroupContent, resolveGroupMembers } from '../template-group-utils.js';
 
 function buildProxyLine(proxy) {
     const type = String(proxy.type || '').toLowerCase();
@@ -123,12 +124,14 @@ function buildProxyLine(proxy) {
     return null;
 }
 
-function buildProxyGroupLine(group) {
+function buildProxyGroupLine(group, allProxyNames = []) {
     const type = String(group.type || 'select').toLowerCase();
-    const rawMembers = Array.isArray(group.members) ? group.members.filter(Boolean) : [];
+    const resolved = Array.isArray(group.members) && group.members.length > 0
+        ? group.members.filter(Boolean)
+        : resolveGroupMembers(group, allProxyNames);
     const members = (['url-test', 'fallback', 'load-balance'].includes(type)
-        ? rawMembers.filter(member => !['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase()))
-        : rawMembers).join(', ');
+        ? resolved.filter(member => !['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase()))
+        : resolved).join(', ');
     const filter = Array.isArray(group.filters) && group.filters.length > 0 ? group.filters.join('|') : '';
     const tolerance = group.options?.tolerance;
     if (type === 'url-test') {
@@ -164,11 +167,12 @@ export function renderSurgeFromTemplateModel(model, options = {}) {
     const proxies = Array.isArray(normalizedModel.proxies) && normalizedModel.proxies.length > 0
         ? normalizedModel.proxies
         : urlsToClashProxies(proxyUrls);
+    const allProxyNames = proxies.map(p => p && p.name).filter(Boolean);
 
     const proxyLines = proxies.map(buildProxyLine).filter(Boolean);
     const groupLines = normalizedModel.groups
-        .filter(group => Array.isArray(group.members) && group.members.length > 0)
-        .map(buildProxyGroupLine)
+        .filter(hasGroupContent)
+        .map(group => buildProxyGroupLine(group, allProxyNames))
         .filter(Boolean);
     const ruleLines = normalizedModel.rules.map(buildRuleLine).filter(Boolean);
 

@@ -120,11 +120,22 @@ function parseAclProxyGroupLine(line) {
             }
             continue;
         }
+        // ACL4SSR 里常见的 "interval,tolerance,timeout" 连写形式，如 "300,,50"
+        if (/^\d+\s*(?:,\s*\d*\s*){1,2}$/.test(part)) {
+            const segs = part.split(',').map(s => s.trim());
+            if (segs[0] && options.interval === undefined) options.interval = Number(segs[0]);
+            if (segs[1] && options.tolerance === undefined) options.tolerance = Number(segs[1]);
+            if (segs[2] && options.timeout === undefined) options.timeout = Number(segs[2]);
+            continue;
+        }
         if (part.startsWith('(') && part.endsWith(')')) {
             filters.push(part.slice(1, -1));
             continue;
         }
         if (part === ',') continue;
+        // 兜底：任何未被识别的非空字段都视作 filter 正则
+        // 覆盖 ACL4SSR 里 `☑️ 手动切换`select`.*` 这类"裸正则"用法
+        filters.push(part);
     }
 
     return { name, type, members, filters, options };

@@ -1,5 +1,6 @@
 import yaml from 'js-yaml';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
+import { hasGroupContent, resolveGroupMembers } from '../template-group-utils.js';
 
 function mapTransport(proxy) {
     const network = String(proxy.network || 'tcp').toLowerCase();
@@ -203,9 +204,11 @@ function mapProxy(proxy) {
     };
 }
 
-function mapPolicyGroup(group) {
+function mapPolicyGroup(group, allProxyNames = []) {
     const type = String(group.type || 'select').toLowerCase();
-    const policies = Array.isArray(group.members) ? group.members.filter(Boolean) : [];
+    const policies = Array.isArray(group.members) && group.members.length > 0
+        ? group.members.filter(Boolean)
+        : resolveGroupMembers(group, allProxyNames);
 
     if (type === 'url-test' || type === 'urltest' || type === 'auto-test') {
         return {
@@ -275,10 +278,11 @@ export function renderEgernFromTemplateModel(model) {
     const proxies = normalizedModel.proxies
         .map(mapProxy)
         .filter(Boolean);
+    const allProxyNames = normalizedModel.proxies.map(p => p && p.name).filter(Boolean);
 
     const policyGroups = normalizedModel.groups
-        .filter(group => Array.isArray(group.members) && group.members.length > 0)
-        .map(mapPolicyGroup);
+        .filter(hasGroupContent)
+        .map(group => mapPolicyGroup(group, allProxyNames));
 
     const rules = normalizedModel.rules
         .map(mapRule)
