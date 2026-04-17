@@ -492,7 +492,8 @@ export async function handleMisubRequest(context) {
                 templateSource,
                 managedConfigUrl,
                 storageAdapter,
-                userInfoHeader
+                userInfoHeader,
+                forceRefresh
             });
 
             const isJson = targetFormat === 'singbox' || targetFormat === 'sing-box';

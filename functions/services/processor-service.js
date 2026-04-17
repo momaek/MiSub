@@ -9,6 +9,44 @@ import { renderClashFromIniTemplate, renderSingboxFromIniTemplate, renderSurgeFr
 import { getBuiltinTemplate } from '../modules/subscription/builtin-template-registry.js';
 import { fetchTransformTemplate } from '../modules/subscription/transform-template-cache.js';
 
+/**
+ * 判断模板渲染输出是否"形式上是空"（代理组为空、无规则）。
+ * 这种情况通常是远端模板拉取不完整或缓存了脏数据导致。
+ * 命中此判断时调用方应退回 builtin 生成器，保证客户端依然能用。
+ */
+function isTemplateRenderEmpty(content, targetFormat) {
+    if (typeof content !== 'string' || content.trim().length === 0) return true;
+    const fmt = String(targetFormat || '').toLowerCase();
+    if (fmt === 'clash' || fmt === 'egern') {
+        // YAML：检测 proxy-groups: [] 或 proxy-groups 下无条目
+        if (/\nproxy-groups:\s*\[\s*\]/.test(content)) return true;
+        if (/\npolicy_groups:\s*\[\s*\]/.test(content)) return true;
+    }
+    if (fmt === 'singbox' || fmt === 'sing-box') {
+        try {
+            const json = JSON.parse(content);
+            const outbounds = Array.isArray(json.outbounds) ? json.outbounds : [];
+            const groupOutbounds = outbounds.filter(o => o && (o.type === 'selector' || o.type === 'urltest'));
+            if (groupOutbounds.length === 0) return true;
+        } catch (e) {
+            return true;
+        }
+    }
+    if (fmt === 'surge' || fmt.startsWith('surge&') || fmt === 'loon' || fmt === 'quanx') {
+        // INI 类格式：Proxy Group / Policy 段之间若没有任何策略组行，视为空
+        const section = content.match(/\[(?:Proxy Group|Policy)\]([\s\S]*?)(?=\n\[|$)/i);
+        if (!section) return true;
+        const hasGroupLine = section[1]
+            .split('\n')
+            .some(line => {
+                const t = line.trim();
+                return t.length > 0 && !t.startsWith('#') && !t.startsWith(';') && t.includes('=');
+            });
+        if (!hasGroupLine) return true;
+    }
+    return false;
+}
+
 export class ProcessorService {
     /**
      * Generate nodes based on target format and configuration
@@ -55,7 +93,8 @@ export class ProcessorService {
             templateSource,
             managedConfigUrl,
             storageAdapter,
-            userInfoHeader
+            userInfoHeader,
+            forceRefresh = false
         } = options;
 
         // Check for Base64 (simplest case)
@@ -90,10 +129,16 @@ export class ProcessorService {
         const remoteTemplateUrl = templateSource.kind === 'remote' ? templateSource.value : '';
 
         if (builtinTemplateEntry || remoteTemplateUrl) {
-            const templateText = builtinTemplateEntry?.content || await fetchTransformTemplate(storageAdapter, remoteTemplateUrl);
+            const templateText = builtinTemplateEntry?.content || await fetchTransformTemplate(storageAdapter, remoteTemplateUrl, forceRefresh);
             const isIniTemplate = builtinTemplateEntry?.format === 'ini' || (remoteTemplateUrl && remoteTemplateUrl.toLowerCase().endsWith('.ini'));
 
-            if (templateText && isIniTemplate) {
+            // [防御] 模板内容判定：空白或完全无关键字段 (custom_proxy_group / ruleset / [Proxy Group] / [Rule]) 视为无效，
+            // 不走模板路径，保留 builtin 默认输出，避免产生 proxy-groups: [] 这类看似成功但不可用的空配置。
+            const hasTemplateKeywords = typeof templateText === 'string'
+                && templateText.trim().length > 0
+                && /(^|\n)\s*(custom_proxy_group\s*=|ruleset\s*=|\[Proxy Group\]|\[Rule\])/i.test(templateText);
+
+            if (templateText && isIniTemplate && hasTemplateKeywords) {
                 const renderParams = {
                     nodeList: combinedNodeList,
                     fileName: subName,
@@ -105,31 +150,64 @@ export class ProcessorService {
                     enableUdp: builtinOptions.enableUdp
                 };
 
+                let rendered = null;
                 switch (targetFormat) {
                     case 'clash':
-                        finalContent = renderClashFromIniTemplate(templateText, renderParams);
-                        contentType = 'application/x-yaml; charset=utf-8';
+                        rendered = renderClashFromIniTemplate(templateText, renderParams);
+                        if (isTemplateRenderEmpty(rendered, targetFormat)) {
+                            console.warn('[Template] Rendered empty clash config; falling back to builtin generator');
+                        } else {
+                            finalContent = rendered;
+                            contentType = 'application/x-yaml; charset=utf-8';
+                        }
                         break;
                     case 'singbox':
                     case 'sing-box':
-                        finalContent = renderSingboxFromIniTemplate(templateText, renderParams);
-                        contentType = 'application/json; charset=utf-8';
+                        rendered = renderSingboxFromIniTemplate(templateText, renderParams);
+                        if (isTemplateRenderEmpty(rendered, targetFormat)) {
+                            console.warn('[Template] Rendered empty singbox config; falling back to builtin generator');
+                        } else {
+                            finalContent = rendered;
+                            contentType = 'application/json; charset=utf-8';
+                        }
                         break;
                     case 'surge':
                     case 'surge&ver=4':
-                        finalContent = renderSurgeFromIniTemplate(templateText, renderParams);
+                        rendered = renderSurgeFromIniTemplate(templateText, renderParams);
+                        if (isTemplateRenderEmpty(rendered, targetFormat)) {
+                            console.warn('[Template] Rendered empty surge config; falling back to builtin generator');
+                        } else {
+                            finalContent = rendered;
+                        }
                         break;
                     case 'loon':
-                        finalContent = renderLoonFromIniTemplate(templateText, renderParams);
+                        rendered = renderLoonFromIniTemplate(templateText, renderParams);
+                        if (isTemplateRenderEmpty(rendered, targetFormat)) {
+                            console.warn('[Template] Rendered empty loon config; falling back to builtin generator');
+                        } else {
+                            finalContent = rendered;
+                        }
                         break;
                     case 'quanx':
-                        finalContent = renderQuanxFromIniTemplate(templateText, renderParams);
+                        rendered = renderQuanxFromIniTemplate(templateText, renderParams);
+                        if (isTemplateRenderEmpty(rendered, targetFormat)) {
+                            console.warn('[Template] Rendered empty quanx config; falling back to builtin generator');
+                        } else {
+                            finalContent = rendered;
+                        }
                         break;
                     case 'egern':
-                        finalContent = renderEgernFromIniTemplate(templateText, renderParams);
-                        contentType = 'application/x-yaml; charset=utf-8';
+                        rendered = renderEgernFromIniTemplate(templateText, renderParams);
+                        if (isTemplateRenderEmpty(rendered, targetFormat)) {
+                            console.warn('[Template] Rendered empty egern config; falling back to builtin generator');
+                        } else {
+                            finalContent = rendered;
+                            contentType = 'application/x-yaml; charset=utf-8';
+                        }
                         break;
                 }
+            } else if (templateText && isIniTemplate && !hasTemplateKeywords) {
+                console.warn('[Template] Remote template has no recognizable ACL rules/groups; falling back to builtin generator');
             }
         }
 
