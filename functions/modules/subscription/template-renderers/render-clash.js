@@ -55,22 +55,42 @@ export function renderClashFromTemplateModel(model) {
             if (!ruleProviderMap.has(rule.value)) {
                 // 生成一个可读性较好的名称，尝试从 URL 获取文件名
                 let nameHint = 'rs';
+                let extHint = '';
                 try {
                     const urlPath = new URL(rule.value).pathname;
-                    const fileName = urlPath.split('/').pop()?.replace(/\.(yaml|yml|list|txt|conf)$/i, '') || '';
+                    const rawFileName = urlPath.split('/').pop() || '';
+                    const extMatch = rawFileName.match(/\.(yaml|yml|list|txt|conf|mrs)$/i);
+                    extHint = extMatch ? extMatch[1].toLowerCase() : '';
+                    const fileName = rawFileName.replace(/\.(yaml|yml|list|txt|conf|mrs)$/i, '');
                     if (fileName && fileName.length > 2) {
                         nameHint = fileName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
                     }
                 } catch (e) { /* ignore */ }
-                
+
+                // 根据源文件扩展名推断 format 和本地缓存后缀，避免 Mihomo / Clash Meta
+                // 按默认的 yaml 去解析 ACL4SSR 的 .list 等文本规则集（会 0 条规则加载成功）。
+                let format = 'yaml';
+                let pathExt = 'yaml';
+                if (extHint === 'list' || extHint === 'txt' || extHint === 'conf') {
+                    format = 'text';
+                    pathExt = 'txt';
+                } else if (extHint === 'mrs') {
+                    format = 'mrs';
+                    pathExt = 'mrs';
+                } else if (extHint === 'yml') {
+                    format = 'yaml';
+                    pathExt = 'yaml';
+                }
+
                 const providerName = `${nameHint}_${providerCounter++}`;
                 ruleProviderMap.set(rule.value, providerName);
-                
+
                 ruleProviders[providerName] = {
                     type: 'http',
                     behavior: 'classical',
+                    format,
                     url: rule.value,
-                    path: `./ruleset/${providerName}.yaml`,
+                    path: `./ruleset/${providerName}.${pathExt}`,
                     interval: 86400
                 };
             }

@@ -115,6 +115,47 @@ MATCH,节点选择
         expect(selectGroups[0].proxies).toContain('DIRECT');
     });
 
+    it('should emit correct rule-provider format based on source file extension', () => {
+        const rendered = renderClashFromIniTemplate(`
+[custom]
+ruleset=🎯 全球直连,https://example.com/ChinaDomain.list
+ruleset=🛑 广告拦截,https://example.com/BanAD.list
+ruleset=🎯 全球直连,https://example.com/something.yaml
+ruleset=🎯 全球直连,https://example.com/rules.mrs
+custom_proxy_group=🎯 全球直连\`select\`[]DIRECT
+custom_proxy_group=🛑 广告拦截\`select\`[]REJECT
+        `, {
+            proxies: [{ name: 'A', type: 'trojan', server: '1.1.1.1', port: 443, password: 'p' }]
+        });
+
+        const parsed = yaml.load(rendered);
+        const providers = parsed['rule-providers'];
+        expect(providers).toBeDefined();
+
+        const entries = Object.values(providers);
+        const byUrl = new Map(entries.map(p => [p.url, p]));
+
+        // .list 文件：必须是 text 格式，否则 Mihomo 会按 yaml 解析失败，规则一条都加载不出来
+        const listProvider = byUrl.get('https://example.com/ChinaDomain.list');
+        expect(listProvider).toBeDefined();
+        expect(listProvider.format).toBe('text');
+        expect(listProvider.path).toMatch(/\.txt$/);
+
+        const banadProvider = byUrl.get('https://example.com/BanAD.list');
+        expect(banadProvider.format).toBe('text');
+        expect(banadProvider.path).toMatch(/\.txt$/);
+
+        // .yaml 文件：默认 yaml 格式
+        const yamlProvider = byUrl.get('https://example.com/something.yaml');
+        expect(yamlProvider.format).toBe('yaml');
+        expect(yamlProvider.path).toMatch(/\.yaml$/);
+
+        // .mrs 文件：mrs 格式（Mihomo binary ruleset）
+        const mrsProvider = byUrl.get('https://example.com/rules.mrs');
+        expect(mrsProvider.format).toBe('mrs');
+        expect(mrsProvider.path).toMatch(/\.mrs$/);
+    });
+
     it('should preserve ACL4SSR filter-only proxy groups (e.g. `☑️ 手动切换`select`.*)', () => {
         const rendered = renderClashFromIniTemplate(`
 [custom]
